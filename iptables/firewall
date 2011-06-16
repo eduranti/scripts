@@ -1,0 +1,139 @@
+#!/bin/sh 
+# ULTIMA ALTERACAO REALIZADA POR DURANTI DIA 02 DE JUNHO DE 2011
+
+##############################################################################################################
+##################################### SCRIPT DE  REGRAS DO IPTABLES ##########################################
+##############################################################################################################
+
+# CARREGANDO OS MODULOS DE NAT
+/sbin/modprobe ip_nat_ftp
+/sbin/modprobe iptable_nat
+
+# LIMPANDO AS REGRAS ANTERIORES 
+iptables -F 
+iptables -X 
+iptables -F -t nat
+iptables -X -t nat
+iptables -F -t mangle
+iptables -X -t mangle
+
+##############################################################################################################
+############################################ POLITICA DE ACESSO ##############################################
+##############################################################################################################
+
+#DEFINE POLITICA PADRAO
+#iptables -A INPUT -p tcp --syn -j DROP
+#iptables -A INPUT -i ppp0 -p udp --dport 0:3000 -j DROP
+
+iptables -P INPUT   DROP 
+iptables -P FORWARD ACCEPT 
+iptables -P OUTPUT  ACCEPT
+
+##############################################################################################################
+################################### COMPARTILHANDO A CONEXAO E PROXY #########################################
+##############################################################################################################
+
+# PERMITE A VOLTA DOS PACOTES RELACIONADOS AS CONEXOES
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# LIBERA TRAFEGO NA LOOPBACK
+iptables -A INPUT -i lo -j ACCEPT 
+
+# DESTINA OS PACOTES DA REDE LOCAL, PORTA 80, A SEREM ENCAMINHADOS PARA O SQUID
+iptables -t nat -A PREROUTING -s 192.168.1.0/24 -i eth0 -p tcp --dport 80 -j REDIRECT --to-port 3128
+
+# MASCARANDO E ROTEANDO OS PACOTES PARA PLACA DE REDE DE INTERNET
+iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -o ppp0 -j MASQUERADE
+
+# LIBERANDO O ROTEAMENTO POR KERNEL
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+##############################################################################################################
+###################################### LIBERADO PARA A REDE EXTERNA ##########################################
+##############################################################################################################
+
+# LIBERA SSH 
+iptables -A INPUT -p tcp -m tcp --dport 6689 -j ACCEPT 
+
+##############################################################################################################
+######################################## LIBERADO PARA A REDE INTERNA ########################################
+##############################################################################################################
+
+# LIBERA PROXY
+iptables -A INPUT -p tcp -m tcp -s 192.168.1.0/24 --dport 3128 -j ACCEPT 
+
+# LIBERA WEBMIN
+iptables -A INPUT -p tcp -m tcp -s 192.168.1.0/24 --dport 10000 -j ACCEPT 
+
+# LIBERA SAMBA 
+iptables -A INPUT -p udp -m udp -s 192.168.1.0/24 --dport 137 -j ACCEPT
+iptables -A INPUT -p udp -m udp -s 192.168.1.0/24 --dport 138 -j ACCEPT
+iptables -A INPUT -p tcp -m tcp -s 192.168.1.0/24 --dport 139 -j ACCEPT
+iptables -A INPUT -p tcp -m tcp -s 192.168.1.0/24 --dport 445 -j ACCEPT
+
+# LIBERA APACHE 
+iptables -A INPUT -p tcp -m tcp -s 192.168.1.0/24 --dport 80 -j ACCEPT 
+
+##############################################################################################################
+###################### CONFIGURACOES DE ROTEAMENTO DA CAMARA DE VEREADORES DE SARANDI/RS #####################
+##############################################################################################################
+
+# ROTEIA A PORTA 22 PARA O SERVIDOR DA CONTABILIDADE
+iptables -t nat -A PREROUTING -i ppp0 -p tcp --dport 22100 -j DNAT --to-destination 192.168.1.100:22
+iptables -A FORWARD -i ppp0 -p tcp --dport 22100 -d 192.168.1.100 -j ACCEPT
+
+# ROTEIA A PORTA 8080 PARA O SERVIDOR DA CONTABILIDADE
+iptables -t nat -A PREROUTING -i ppp0 -p tcp --dport 8080 -j DNAT --to-destination 192.168.1.100:8080
+iptables -A FORWARD -i ppp0 -p tcp --dport 8080 -d 192.168.1.100 -j ACCEPT
+
+##############################################################################################################
+################################################## SEGURANCA #################################################
+##############################################################################################################
+
+# FLOODING POR ICMP LIMITANDO POR 10 SEGUNDOS
+iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit 10/s -j ACCEPT 
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+iptables -A INPUT -p icmp -j ACCEPT
+
+# CONTRA OS "PING OF DEATH"
+iptables -t filter -A FORWARD -p icmp --icmp-type echo-request -m limit --limit 1/s -j ACCEPT
+
+# CONTRA ATAQUES DO TIPO "SYN-FLOOD E DOS"
+iptables -t filter -A FORWARD -p tcp -m limit --limit 1/s -j ACCEPT
+
+# CONTRA PACOTES DANIFICADOS OU SUSPEITOS
+iptables -t filter  -A FORWARD -m state --state INVALID -j DROP
+iptables -A INPUT -m state --state INVALID -j DROP
+
+# ATAQUES DE IP SPOOFING
+echo 1 > /proc/sys/net/ipv4/conf/default/rp_filter
+iptables -A INPUT -m state --state INVALID -j DROP
+
+# CASO ALGUM HOST DA LISTA SSH TENTAR ACESSAR A PORTA 6689 2x, SERA BLOQUEADO POR 1 MINUTO
+iptables -A INPUT -p tcp --dport 6689 -m recent --update --hitcount 2 --seconds 60 --name SSH -j DROP
+
+# ADICIONA AUTOMATICAMENTE O HOST NA LISTA SSH, AO ACESSAR PELA PORTA 6689
+iptables -A INPUT -p tcp --dport 6689 -m recent --set --name SSH -j ACCEPT
+
+##############################################################################################################
+############################################### PERFORMANCE ##################################################
+##############################################################################################################
+
+#DELAY MINIMO PARA NAVEGACAO WEB
+iptables -t mangle -A OUTPUT -o ppp0 -p tcp --dport 53 -j TOS --set-tos Minimize-Delay
+iptables -t mangle -A OUTPUT -o ppp0 -p tcp --dport 80 -j TOS --set-tos Minimize-Delay
+
+##############################################################################################################
+############################################ POLITICA DE ACESSO ##############################################
+##############################################################################################################
+
+#DEFINE POLITICA PADRAO
+#iptables -A INPUT -p tcp --syn -j DROP
+#iptables -A INPUT -i ppp0 -p udp --dport 0:3000 -j DROP
+#iptables -P FORWARD ACCEPT 
+#iptables -P OUTPUT  ACCEPT
+
+##############################################################################################################
+################################################### FIM ######################################################
+##############################################################################################################

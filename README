@@ -1,7 +1,14 @@
 
 EDUARDO AUGUSTO DURANTI
-SITE:  www.duranti.com.br
+www.duranti.com.br
 EMAIL: eduardo@duranti.com.br
 MSN: eduranti@gmail.com
 SKYPE: eduranti
 TWITTER: @eduranti
+
+
+Arquivos de configuracao de servicos do linux, e como colocar o iptables rodar como 
+servico,   permitindo que seja utilizado como ' service iptables start/stop/restart/status ' !
+
+Lembrar de remover as permissoes totais dos arquivos! Como root executar:
+chmod 700 nome_do_arquivo
